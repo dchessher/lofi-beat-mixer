@@ -8,17 +8,51 @@ const STEP_COUNT = BARS * BEATS_PER_BAR
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max)
 
+type FilterSettings = {
+  type: BiquadFilterType
+  frequency: number
+  Q?: number
+  gain?: number
+}
+
+type Envelope = {
+  attack?: number
+  decay?: number
+  sustain?: number
+  hold?: number
+  release?: number
+}
+
+type ToneComponent = {
+  kind: 'tone'
+  wave: OscillatorType
+  ratio?: number
+  detuneCents?: number
+  gain?: number
+}
+
+type NoiseComponent = {
+  kind: 'noise'
+  color: 'white' | 'pink'
+  gain?: number
+  filter?: FilterSettings
+}
+
+type TrackComponent = ToneComponent | NoiseComponent
+
 type Track = {
   id: string
   name: string
   color: string
-  baseFrequency: number
-  wave: OscillatorType
+  baseFrequency?: number
   enabled: boolean
   level: number
   density: number
   offset: number
   pattern: boolean[]
+  components: TrackComponent[]
+  envelope?: Envelope
+  filter?: FilterSettings
 }
 
 const createEvenPattern = (count: number, offset = 0) => {
@@ -35,56 +69,185 @@ const createEvenPattern = (count: number, offset = 0) => {
   return pattern
 }
 
+const MAJOR_THIRD_RATIO = 2 ** (4 / 12)
+const PERFECT_FIFTH_RATIO = 2 ** (7 / 12)
+
 const defaultTracks: Track[] = [
   {
     id: 'kick',
     name: 'Kick',
     color: '#ff6b6b',
-    baseFrequency: 90,
-    wave: 'sine',
+    baseFrequency: 60,
     enabled: true,
     level: 85,
     density: 32,
     offset: 0,
     pattern: createEvenPattern(32, 0),
+    components: [
+      { kind: 'tone', wave: 'sine', ratio: 1, gain: 1 },
+      { kind: 'tone', wave: 'sine', ratio: 2, gain: 0.3 },
+    ],
+    envelope: { attack: 0.002, decay: 0.28, sustain: 0, hold: 0, release: 0.4 },
+    filter: { type: 'lowpass', frequency: 1400, Q: 0.7 },
   },
   {
     id: 'snare',
     name: 'Snare',
     color: '#ffd166',
-    baseFrequency: 220,
-    wave: 'triangle',
+    baseFrequency: 180,
     enabled: true,
-    level: 65,
+    level: 70,
     density: 16,
     offset: 2,
     pattern: createEvenPattern(16, 2),
+    components: [
+      { kind: 'tone', wave: 'triangle', ratio: 1, gain: 0.5 },
+      {
+        kind: 'noise',
+        color: 'white',
+        gain: 0.8,
+        filter: { type: 'bandpass', frequency: 1800, Q: 1.1 },
+      },
+    ],
+    envelope: { attack: 0.001, decay: 0.22, sustain: 0, hold: 0, release: 0.25 },
   },
   {
     id: 'hat',
     name: 'Hi-Hat',
     color: '#06d6a0',
-    baseFrequency: 640,
-    wave: 'square',
+    baseFrequency: 8000,
     enabled: true,
     level: 50,
     density: STEP_COUNT,
     offset: 0,
     pattern: createEvenPattern(STEP_COUNT, 0),
+    components: [
+      {
+        kind: 'noise',
+        color: 'white',
+        gain: 0.7,
+        filter: { type: 'highpass', frequency: 6000, Q: 0.7 },
+      },
+      { kind: 'tone', wave: 'square', ratio: 2, gain: 0.15 },
+    ],
+    envelope: { attack: 0.001, decay: 0.08, sustain: 0, hold: 0, release: 0.1 },
+    filter: { type: 'highpass', frequency: 4000, Q: 0.8 },
   },
   {
-    id: 'chords',
-    name: 'Chords',
-    color: '#118ab2',
-    baseFrequency: 330,
-    wave: 'sawtooth',
+    id: 'clap',
+    name: 'Clap',
+    color: '#f78c6b',
     enabled: true,
-    level: 45,
+    level: 55,
+    density: 16,
+    offset: 1,
+    pattern: createEvenPattern(16, 1),
+    components: [
+      {
+        kind: 'noise',
+        color: 'white',
+        gain: 0.9,
+        filter: { type: 'bandpass', frequency: 1500, Q: 1.6 },
+      },
+      {
+        kind: 'noise',
+        color: 'white',
+        gain: 0.6,
+        filter: { type: 'bandpass', frequency: 800, Q: 0.9 },
+      },
+    ],
+    envelope: { attack: 0.001, decay: 0.24, sustain: 0, hold: 0, release: 0.2 },
+  },
+  {
+    id: 'perc-fx',
+    name: 'Perc FX',
+    color: '#8338ec',
+    baseFrequency: 420,
+    enabled: true,
+    level: 50,
+    density: 12,
+    offset: 0,
+    pattern: createEvenPattern(12, 0),
+    components: [
+      { kind: 'tone', wave: 'sawtooth', ratio: 1, gain: 0.6 },
+      { kind: 'tone', wave: 'sawtooth', ratio: 1.5, gain: 0.3 },
+      {
+        kind: 'noise',
+        color: 'pink',
+        gain: 0.4,
+        filter: { type: 'bandpass', frequency: 1200, Q: 1.5 },
+      },
+    ],
+    envelope: { attack: 0.01, decay: 0.35, sustain: 0.15, hold: 0.1, release: 0.45 },
+    filter: { type: 'bandpass', frequency: 1500, Q: 1.2 },
+  },
+  {
+    id: 'bass',
+    name: 'Bass',
+    color: '#073b4c',
+    baseFrequency: 55,
+    enabled: true,
+    level: 65,
     density: 16,
     offset: 0,
     pattern: createEvenPattern(16, 0),
+    components: [
+      { kind: 'tone', wave: 'square', ratio: 1, gain: 0.9 },
+      { kind: 'tone', wave: 'sawtooth', ratio: 0.5, gain: 0.4 },
+      { kind: 'tone', wave: 'square', ratio: 2, gain: 0.25 },
+    ],
+    envelope: { attack: 0.02, decay: 0.25, sustain: 0.45, hold: 0.15, release: 0.5 },
+    filter: { type: 'lowpass', frequency: 900, Q: 0.7 },
+  },
+  {
+    id: 'pad',
+    name: 'Pad',
+    color: '#118ab2',
+    baseFrequency: 220,
+    enabled: true,
+    level: 45,
+    density: 8,
+    offset: 0,
+    pattern: createEvenPattern(8, 0),
+    components: [
+      { kind: 'tone', wave: 'sawtooth', ratio: 1, gain: 0.5 },
+      { kind: 'tone', wave: 'sawtooth', ratio: MAJOR_THIRD_RATIO, gain: 0.35 },
+      { kind: 'tone', wave: 'sawtooth', ratio: PERFECT_FIFTH_RATIO, gain: 0.3 },
+      { kind: 'noise', color: 'pink', gain: 0.2 },
+    ],
+    envelope: { attack: 0.18, decay: 0.6, sustain: 0.6, hold: 0.4, release: 1.2 },
+    filter: { type: 'lowpass', frequency: 2400, Q: 0.6 },
   },
 ]
+
+const createNoiseBuffer = (context: AudioContext, color: 'white' | 'pink') => {
+  const durationSeconds = 1
+  const frameCount = Math.max(1, Math.floor(context.sampleRate * durationSeconds))
+  const buffer = context.createBuffer(1, frameCount, context.sampleRate)
+  const channelData = buffer.getChannelData(0)
+
+  if (color === 'white') {
+    for (let i = 0; i < channelData.length; i += 1) {
+      channelData[i] = Math.random() * 2 - 1
+    }
+    return buffer
+  }
+
+  let b0 = 0
+  let b1 = 0
+  let b2 = 0
+
+  for (let i = 0; i < channelData.length; i += 1) {
+    const white = Math.random() * 2 - 1
+    b0 = 0.99765 * b0 + white * 0.0990460
+    b1 = 0.96300 * b1 + white * 0.2965164
+    b2 = 0.57000 * b2 + white * 1.0526913
+    const pink = b0 + b1 + b2 + white * 0.1848
+    channelData[i] = pink * 0.11
+  }
+
+  return buffer
+}
 
 function App() {
   const [tempo, setTempo] = useState(85)
@@ -96,6 +259,7 @@ function App() {
 
   const audioContextRef = useRef<AudioContext | null>(null)
   const masterGainRef = useRef<GainNode | null>(null)
+  const noiseBuffersRef = useRef<Partial<Record<'white' | 'pink', AudioBuffer>>>({})
   const timeoutRef = useRef<number | null>(null)
   const stepRef = useRef(0)
 
@@ -112,6 +276,14 @@ function App() {
     return audioContextRef.current
   }
 
+  const getNoiseBuffer = (context: AudioContext, color: 'white' | 'pink') => {
+    if (!noiseBuffersRef.current[color]) {
+      noiseBuffersRef.current[color] = createNoiseBuffer(context, color)
+    }
+
+    return noiseBuffersRef.current[color]!
+  }
+
   useEffect(() => {
     const context = audioContextRef.current
     const masterGain = masterGainRef.current
@@ -123,23 +295,100 @@ function App() {
 
   const playTrackHit = (track: Track, context: AudioContext, when: number) => {
     const masterGain = masterGainRef.current
-    if (!masterGain) return
+    if (!masterGain || track.components.length === 0) return
 
-    const osc = context.createOscillator()
-    const gainNode = context.createGain()
+    const amplitude = clamp(track.level / 100, 0, 1) * 0.45
 
-    osc.type = track.wave
-    osc.frequency.setValueAtTime(track.baseFrequency, when)
+    const voiceGain = context.createGain()
 
-    const amplitude = clamp(track.level / 100, 0, 1) * 0.4
-    gainNode.gain.setValueAtTime(amplitude, when)
-    gainNode.gain.exponentialRampToValueAtTime(0.001, when + 0.5)
+    const envelope = track.envelope ?? {}
+    const attack = envelope.attack ?? 0.01
+    const decay = envelope.decay ?? 0.2
+    const sustain = envelope.sustain ?? 0
+    const hold = envelope.hold ?? 0
+    const release = Math.max(0.01, envelope.release ?? 0.3)
+    const sustainLevel = amplitude * sustain
+    const sustainTime = when + attack + decay + hold
 
-    osc.connect(gainNode)
-    gainNode.connect(masterGain)
+    voiceGain.gain.cancelScheduledValues(when)
+    voiceGain.gain.setValueAtTime(0.0001, when)
+    voiceGain.gain.linearRampToValueAtTime(amplitude, when + attack)
+    voiceGain.gain.linearRampToValueAtTime(sustainLevel, when + attack + decay)
+    voiceGain.gain.setValueAtTime(sustainLevel, sustainTime)
+    voiceGain.gain.setTargetAtTime(0.0001, sustainTime, release)
 
-    osc.start(when)
-    osc.stop(when + 0.6)
+    let trackOutput: AudioNode = voiceGain
+
+    if (track.filter) {
+      const filterNode = context.createBiquadFilter()
+      filterNode.type = track.filter.type
+      filterNode.frequency.setValueAtTime(track.filter.frequency, when)
+      if (track.filter.Q !== undefined) {
+        filterNode.Q.setValueAtTime(track.filter.Q, when)
+      }
+      if (track.filter.gain !== undefined) {
+        filterNode.gain.setValueAtTime(track.filter.gain, when)
+      }
+      voiceGain.connect(filterNode)
+      trackOutput = filterNode
+    }
+
+    trackOutput.connect(masterGain)
+
+    const stopTime = when + attack + decay + hold + release * 4 + 0.4
+    const pitchBend = 1 + Math.random() * 0.02 - 0.01
+
+    track.components.forEach((component) => {
+      if (component.kind === 'tone') {
+        if (!track.baseFrequency) {
+          return
+        }
+
+        const osc = context.createOscillator()
+        osc.type = component.wave
+        const ratio = component.ratio ?? 1
+        const frequency = track.baseFrequency * ratio * pitchBend
+        osc.frequency.setValueAtTime(frequency, when)
+        if (component.detuneCents !== undefined) {
+          osc.detune.setValueAtTime(component.detuneCents, when)
+        }
+
+        const componentGain = context.createGain()
+        componentGain.gain.setValueAtTime(component.gain ?? 1, when)
+        osc.connect(componentGain)
+        componentGain.connect(voiceGain)
+
+        osc.start(when)
+        osc.stop(stopTime)
+      } else {
+        const source = context.createBufferSource()
+        source.buffer = getNoiseBuffer(context, component.color)
+        source.loop = false
+
+        const noiseGain = context.createGain()
+        noiseGain.gain.setValueAtTime(component.gain ?? 1, when)
+        source.connect(noiseGain)
+
+        let destination: AudioNode = noiseGain
+        if (component.filter) {
+          const noiseFilter = context.createBiquadFilter()
+          noiseFilter.type = component.filter.type
+          noiseFilter.frequency.setValueAtTime(component.filter.frequency, when)
+          if (component.filter.Q !== undefined) {
+            noiseFilter.Q.setValueAtTime(component.filter.Q, when)
+          }
+          if (component.filter.gain !== undefined) {
+            noiseFilter.gain.setValueAtTime(component.filter.gain, when)
+          }
+          noiseGain.connect(noiseFilter)
+          destination = noiseFilter
+        }
+
+        destination.connect(voiceGain)
+        source.start(when)
+        source.stop(stopTime)
+      }
+    })
   }
 
   const playStep = (index: number, context: AudioContext) => {
@@ -150,15 +399,7 @@ function App() {
         return
       }
 
-      const pitchBend = 1 + Math.random() * 0.02 - 0.01
-      playTrackHit(
-        {
-          ...track,
-          baseFrequency: track.baseFrequency * pitchBend,
-        },
-        context,
-        startTime,
-      )
+      playTrackHit(track, context, startTime)
     })
   }
 
