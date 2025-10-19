@@ -271,6 +271,14 @@ function App() {
     }))
   }
 
+  const handleClearTrack = (trackId: string) => {
+    updateTrack(trackId, (track) => ({
+      ...track,
+      density: 0,
+      pattern: Array.from({ length: STEP_COUNT }, () => false),
+    }))
+  }
+
   const trackSummaries = useMemo(
     () =>
       tracks.map((track) => ({
@@ -304,7 +312,8 @@ function App() {
         style={{
           '--step-count': STEP_COUNT,
           '--beats-per-bar': BEATS_PER_BAR,
-          '--label-column-width': '160px',
+          '--label-column-width': '120px',
+          '--beat-column-width': '36px',
         } as CSSProperties}
       >
         <div className="timeline" aria-label="Timeline markers">
@@ -346,21 +355,30 @@ function App() {
                 <span className="track-grid__name">{track.name}</span>
                 <span className="track-grid__meta">{track.activeSteps} hits</span>
               </div>
-              <div className="track-grid__steps">
-                {track.pattern.map((active, index) => (
-                  <button
-                    key={index}
-                    type="button"
-                    className={`step ${active ? 'step--active' : ''} ${
-                      currentStep === index ? 'step--current' : ''
-                    } ${index % BEATS_PER_BAR === 0 ? 'step--bar-start' : ''}`}
-                    onClick={() => handleStepToggle(track.id, index)}
-                    aria-pressed={active}
-                    aria-label={`${track.name} bar ${
-                      Math.floor(index / BEATS_PER_BAR) + 1
-                    } beat ${(index % BEATS_PER_BAR) + 1}`}
-                  />
-                ))}
+              <div className="track-grid__editor">
+                <div className="track-grid__steps">
+                  {track.pattern.map((active, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      className={`step ${active ? 'step--active' : ''} ${
+                        currentStep === index ? 'step--current' : ''
+                      } ${index % BEATS_PER_BAR === 0 ? 'step--bar-start' : ''}`}
+                      onClick={() => handleStepToggle(track.id, index)}
+                      aria-pressed={active}
+                      aria-label={`${track.name} bar ${
+                        Math.floor(index / BEATS_PER_BAR) + 1
+                      } beat ${(index % BEATS_PER_BAR) + 1}`}
+                    />
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="track-grid__clear"
+                  onClick={() => handleClearTrack(track.id)}
+                >
+                  Clear
+                </button>
               </div>
             </div>
           ))}
