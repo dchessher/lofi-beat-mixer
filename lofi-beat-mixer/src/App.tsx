@@ -1,7 +1,9 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
-const STEP_COUNT = 16
+const BARS = 16
+const BEATS_PER_BAR = 4
+const STEP_COUNT = BARS * BEATS_PER_BAR
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max)
@@ -42,9 +44,9 @@ const defaultTracks: Track[] = [
     wave: 'sine',
     enabled: true,
     level: 85,
-    density: 4,
+    density: 32,
     offset: 0,
-    pattern: createEvenPattern(4, 0),
+    pattern: createEvenPattern(32, 0),
   },
   {
     id: 'snare',
@@ -54,9 +56,9 @@ const defaultTracks: Track[] = [
     wave: 'triangle',
     enabled: true,
     level: 65,
-    density: 4,
+    density: 16,
     offset: 2,
-    pattern: createEvenPattern(4, 2),
+    pattern: createEvenPattern(16, 2),
   },
   {
     id: 'hat',
@@ -66,9 +68,9 @@ const defaultTracks: Track[] = [
     wave: 'square',
     enabled: true,
     level: 50,
-    density: 8,
+    density: STEP_COUNT,
     offset: 0,
-    pattern: createEvenPattern(8, 0),
+    pattern: createEvenPattern(STEP_COUNT, 0),
   },
   {
     id: 'chords',
@@ -78,9 +80,9 @@ const defaultTracks: Track[] = [
     wave: 'sawtooth',
     enabled: true,
     level: 45,
-    density: 2,
+    density: 16,
     offset: 0,
-    pattern: createEvenPattern(2, 0),
+    pattern: createEvenPattern(16, 0),
   },
 ]
 
@@ -278,6 +280,8 @@ function App() {
     [tracks],
   )
 
+  const currentBar = Math.floor(currentStep / BEATS_PER_BAR)
+
   return (
     <div className="app">
       <header className="app__header">
@@ -294,15 +298,37 @@ function App() {
         </button>
       </header>
 
-      <section className="viewport" aria-label="Beat layout viewport">
-        <div className="timeline" role="list" aria-label="Timeline markers">
-          {Array.from({ length: STEP_COUNT }, (_, index) => (
+      <section
+        className="viewport"
+        aria-label="Beat layout viewport"
+        style={{
+          '--step-count': STEP_COUNT,
+          '--beats-per-bar': BEATS_PER_BAR,
+          '--label-column-width': '160px',
+        } as CSSProperties}
+      >
+        <div className="timeline" aria-label="Timeline markers">
+          <div className="timeline__spacer" aria-hidden="true" />
+          {Array.from({ length: BARS }, (_, barIndex) => (
             <div
-              key={index}
-              className={`timeline__bar ${currentStep === index ? 'timeline__bar--current' : ''}`}
-              role="listitem"
+              key={barIndex}
+              className={`timeline__bar ${
+                currentBar === barIndex ? 'timeline__bar--current' : ''
+              }`}
+              style={{ gridColumn: `span ${BEATS_PER_BAR}` }}
             >
-              <span>Bar {index + 1}</span>
+              <span>Bar {barIndex + 1}</span>
+            </div>
+          ))}
+          <div className="timeline__beats-label">Beats</div>
+          {Array.from({ length: STEP_COUNT }, (_, beatIndex) => (
+            <div
+              key={beatIndex}
+              className={`timeline__beat ${
+                currentStep === beatIndex ? 'timeline__beat--current' : ''
+              }`}
+            >
+              {(beatIndex % BEATS_PER_BAR) + 1}
             </div>
           ))}
         </div>
@@ -327,10 +353,12 @@ function App() {
                     type="button"
                     className={`step ${active ? 'step--active' : ''} ${
                       currentStep === index ? 'step--current' : ''
-                    }`}
+                    } ${index % BEATS_PER_BAR === 0 ? 'step--bar-start' : ''}`}
                     onClick={() => handleStepToggle(track.id, index)}
                     aria-pressed={active}
-                    aria-label={`${track.name} bar ${index + 1}`}
+                    aria-label={`${track.name} bar ${
+                      Math.floor(index / BEATS_PER_BAR) + 1
+                    } beat ${(index % BEATS_PER_BAR) + 1}`}
                   />
                 ))}
               </div>
