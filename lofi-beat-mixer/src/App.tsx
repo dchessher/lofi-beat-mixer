@@ -55,6 +55,8 @@ type Track = {
   filter?: FilterSettings
 }
 
+const getStepIndex = (bar: number, beat: number) => bar * BEATS_PER_BAR + beat
+
 const createEvenPattern = (count: number, offset = 0) => {
   const pattern = Array.from({ length: STEP_COUNT }, () => false)
   if (count <= 0) {
@@ -66,6 +68,32 @@ const createEvenPattern = (count: number, offset = 0) => {
     pattern[index] = true
   }
 
+  return pattern
+}
+
+const createEmptyPattern = () => Array.from({ length: STEP_COUNT }, () => false)
+
+const createPatternFromSteps = (steps: number[]) => {
+  const pattern = createEmptyPattern()
+  steps.forEach((step) => {
+    if (step >= 0 && step < STEP_COUNT) {
+      pattern[step] = true
+    }
+  })
+  return pattern
+}
+
+const createBarPattern = (beatGroups: number[][]) => {
+  const pattern = createEmptyPattern()
+  for (let bar = 0; bar < BARS; bar += 1) {
+    const beats = beatGroups[bar % beatGroups.length] ?? []
+    beats.forEach((beat) => {
+      if (beat >= 0 && beat < BEATS_PER_BAR) {
+        const step = bar * BEATS_PER_BAR + beat
+        pattern[step] = true
+      }
+    })
+  }
   return pattern
 }
 
@@ -332,6 +360,103 @@ const defaultTracks: Track[] = [
   },
 ]
 
+type PresetTrackSettings = {
+  pattern: boolean[]
+  enabled?: boolean
+  level?: number
+}
+
+type Preset = {
+  id: string
+  name: string
+  description: string
+  tracks: Record<string, PresetTrackSettings>
+}
+
+const PRESET_CUSTOM_ID = 'custom'
+
+const presets: Preset[] = [
+  {
+    id: 'midnight-ride',
+    name: 'Midnight Ride',
+    description:
+      'Steady downtempo pulse with warm pads, layered bass, and mellow brass accents.',
+    tracks: {
+      kick: { pattern: createBarPattern([[0, 2], [0, 3]]) },
+      snare: { pattern: createBarPattern([[1, 3]]) },
+      hat: { pattern: createBarPattern([[0, 1, 2, 3]]) },
+      clap: { pattern: createBarPattern([[3], []]) },
+      'perc-fx': { pattern: createBarPattern([[], [2], [], [1]]) },
+      bass: { pattern: createBarPattern([[0, 2], [0, 3]]) },
+      pad: { pattern: createBarPattern([[0], [2]]) },
+      'trumpet-hi': { pattern: createBarPattern([[], [], [1], []]) },
+      'trumpet-low': { pattern: createBarPattern([[2], [], [], [1]]) },
+      'sax-hi': { pattern: createBarPattern([[1], [], [], [2]]) },
+      'sax-low': { pattern: createBarPattern([[0], [], [2], []]) },
+      'violin-hi': { pattern: createBarPattern([[0], [], [], [3]]) },
+      'violin-low': { pattern: createBarPattern([[2], [], [], [0]]) },
+    },
+  },
+  {
+    id: 'sunrise-bounce',
+    name: 'Sunrise Bounce',
+    description: 'Bright shuffle full of syncopated drums and lively horn stabs.',
+    tracks: {
+      kick: { pattern: createBarPattern([[0, 1, 3], [0, 2, 3]]) },
+      snare: { pattern: createBarPattern([[1, 3], [1], [3], [1, 3]]) },
+      hat: { pattern: createBarPattern([[0, 2, 3], [0, 1, 2, 3]]) },
+      clap: { pattern: createBarPattern([[3], [2, 3], [3], [2]]) },
+      'perc-fx': { pattern: createBarPattern([[2], [], [1, 3], []]) },
+      bass: { pattern: createBarPattern([[0, 1, 3], [0, 2, 3]]) },
+      pad: { pattern: createBarPattern([[0, 3], [1, 2]]) },
+      'trumpet-hi': { pattern: createBarPattern([[2], [], [1], []]) },
+      'trumpet-low': { pattern: createBarPattern([[0, 2], [], [0], []]) },
+      'sax-hi': { pattern: createBarPattern([[3], [], [], [1, 2]]) },
+      'sax-low': { pattern: createBarPattern([[1], [], [3], []]) },
+      'violin-hi': { pattern: createBarPattern([[0], [2], [], [1]]) },
+      'violin-low': { pattern: createBarPattern([[2], [], [], [2]]) },
+    },
+  },
+  {
+    id: 'rainy-drift',
+    name: 'Rainy Drift',
+    description: 'Laid-back half-time groove with sparse percussion and gentle strings.',
+    tracks: {
+      kick: {
+        pattern: createPatternFromSteps([
+          getStepIndex(0, 0),
+          getStepIndex(1, 0),
+          getStepIndex(2, 0),
+          getStepIndex(3, 2),
+          getStepIndex(6, 0),
+          getStepIndex(7, 2),
+          getStepIndex(10, 0),
+          getStepIndex(14, 2),
+        ]),
+      },
+      snare: { pattern: createBarPattern([[2], [], [2], []]) },
+      hat: { pattern: createBarPattern([[0, 2], [0], [2], [0]]) },
+      clap: { pattern: createBarPattern([[], [], [], [3]]) },
+      'perc-fx': {
+        pattern: createPatternFromSteps([
+          getStepIndex(1, 3),
+          getStepIndex(5, 2),
+          getStepIndex(9, 1),
+          getStepIndex(13, 2),
+        ]),
+      },
+      bass: { pattern: createBarPattern([[0], [], [0, 2], []]) },
+      pad: { pattern: createBarPattern([[0], [], [2], []]) },
+      'trumpet-hi': { pattern: createEmptyPattern(), enabled: false },
+      'trumpet-low': { pattern: createBarPattern([[3], [], [], []]), enabled: false },
+      'sax-hi': { pattern: createBarPattern([[], [], [3], []]) },
+      'sax-low': { pattern: createBarPattern([[2], [], [], [2]]) },
+      'violin-hi': { pattern: createBarPattern([[0], [], [], []]) },
+      'violin-low': { pattern: createBarPattern([[2], [], [], []]) },
+    },
+  },
+]
+
 const createNoiseBuffer = (context: AudioContext, color: 'white' | 'pink') => {
   const durationSeconds = 1
   const frameCount = Math.max(1, Math.floor(context.sampleRate * durationSeconds))
@@ -367,6 +492,7 @@ function App() {
   const [masterVolume, setMasterVolume] = useState(70)
   const [isPlaying, setIsPlaying] = useState(false)
   const [tracks, setTracks] = useState<Track[]>(defaultTracks)
+  const [selectedPresetId, setSelectedPresetId] = useState<string>(PRESET_CUSTOM_ID)
   const [currentStep, setCurrentStep] = useState(0)
 
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -374,6 +500,14 @@ function App() {
   const noiseBuffersRef = useRef<Partial<Record<'white' | 'pink', AudioBuffer>>>({})
   const timeoutRef = useRef<number | null>(null)
   const stepRef = useRef(0)
+
+  const activePreset = useMemo(
+    () => presets.find((preset) => preset.id === selectedPresetId),
+    [selectedPresetId],
+  )
+  const customPresetDescription =
+    'Start with an empty canvas or tweak any preset to craft your own groove.'
+  const presetDescription = activePreset?.description ?? customPresetDescription
 
   const ensureAudio = () => {
     if (!audioContextRef.current) {
@@ -576,11 +710,57 @@ function App() {
     setIsPlaying(true)
   }
 
+  const markCustom = () => {
+    if (selectedPresetId !== PRESET_CUSTOM_ID) {
+      setSelectedPresetId(PRESET_CUSTOM_ID)
+    }
+  }
+
+  const handleSelectPreset = (presetId: string) => {
+    if (presetId === PRESET_CUSTOM_ID) {
+      setSelectedPresetId(PRESET_CUSTOM_ID)
+      return
+    }
+
+    const preset = presets.find((item) => item.id === presetId)
+    if (!preset) {
+      setSelectedPresetId(PRESET_CUSTOM_ID)
+      return
+    }
+
+    setTracks((prev) =>
+      prev.map((track) => {
+        const presetTrack = preset.tracks[track.id]
+        if (!presetTrack) {
+          return track
+        }
+
+        const pattern = presetTrack.pattern.slice()
+        const density = pattern.filter(Boolean).length
+        const firstActive = pattern.findIndex((step) => step)
+
+        return {
+          ...track,
+          pattern,
+          density,
+          offset: firstActive >= 0 ? firstActive : 0,
+          enabled:
+            typeof presetTrack.enabled === 'boolean' ? presetTrack.enabled : track.enabled,
+          level:
+            typeof presetTrack.level === 'number' ? presetTrack.level : track.level,
+        }
+      }),
+    )
+
+    setSelectedPresetId(presetId)
+  }
+
   const updateTrack = (trackId: string, updater: (track: Track) => Track) => {
     setTracks((prev) => prev.map((track) => (track.id === trackId ? updater(track) : track)))
   }
 
   const handleStepToggle = (trackId: string, index: number) => {
+    markCustom()
     updateTrack(trackId, (track) => {
       const pattern = track.pattern.map((value, stepIndex) =>
         stepIndex === index ? !value : value,
@@ -595,6 +775,7 @@ function App() {
   }
 
   const handleDensityChange = (trackId: string, density: number) => {
+    markCustom()
     updateTrack(trackId, (track) => ({
       ...track,
       density,
@@ -603,6 +784,7 @@ function App() {
   }
 
   const handleOffsetChange = (trackId: string, offset: number) => {
+    markCustom()
     updateTrack(trackId, (track) => ({
       ...track,
       offset,
@@ -611,6 +793,7 @@ function App() {
   }
 
   const handleLevelChange = (trackId: string, level: number) => {
+    markCustom()
     updateTrack(trackId, (track) => ({
       ...track,
       level,
@@ -618,6 +801,7 @@ function App() {
   }
 
   const handleToggleTrack = (trackId: string) => {
+    markCustom()
     updateTrack(trackId, (track) => ({
       ...track,
       enabled: !track.enabled,
@@ -625,6 +809,7 @@ function App() {
   }
 
   const handleClearTrack = (trackId: string) => {
+    markCustom()
     updateTrack(trackId, (track) => ({
       ...track,
       density: 0,
@@ -739,6 +924,33 @@ function App() {
       </section>
 
       <section className="control-panel">
+        <div className="control-panel__group">
+          <h2>Preset Beats</h2>
+          <div className="preset-controls">
+            <label className="preset-controls__label" htmlFor="preset-select">
+              Choose a vibe
+            </label>
+            <div className="preset-controls__inputs">
+              <select
+                id="preset-select"
+                value={selectedPresetId}
+                onChange={(event) => handleSelectPreset(event.target.value)}
+              >
+                <option value={PRESET_CUSTOM_ID}>Custom mix</option>
+                {presets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name}
+                  </option>
+                ))}
+              </select>
+              {selectedPresetId !== PRESET_CUSTOM_ID ? (
+                <span className="preset-controls__badge">Preset applied</span>
+              ) : null}
+            </div>
+            <p className="preset-controls__description">{presetDescription}</p>
+          </div>
+        </div>
+
         <div className="control-panel__group">
           <h2>Master Controls</h2>
           <div className="control-grid">
