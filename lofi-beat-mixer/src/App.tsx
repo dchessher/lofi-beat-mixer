@@ -457,7 +457,7 @@ const presets: Preset[] = [
   },
 ]
 
-const createNoiseBuffer = (context: AudioContext, color: 'white' | 'pink') => {
+const createNoiseBuffer = (context: BaseAudioContext, color: 'white' | 'pink') => {
   const durationSeconds = 1
   const frameCount = Math.max(1, Math.floor(context.sampleRate * durationSeconds))
   const buffer = context.createBuffer(1, frameCount, context.sampleRate)
@@ -486,6 +486,70 @@ const createNoiseBuffer = (context: AudioContext, color: 'white' | 'pink') => {
   return buffer
 }
 
+const audioBufferToWav = (buffer: AudioBuffer) => {
+  const numChannels = buffer.numberOfChannels
+  const sampleRate = buffer.sampleRate
+  const numFrames = buffer.length
+  const bytesPerSample = 2
+  const blockAlign = numChannels * bytesPerSample
+  const byteRate = sampleRate * blockAlign
+  const dataSize = numFrames * blockAlign
+  const bufferSize = 44 + dataSize
+  const arrayBuffer = new ArrayBuffer(bufferSize)
+  const view = new DataView(arrayBuffer)
+
+  const writeString = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i += 1) {
+      view.setUint8(offset + i, value.charCodeAt(i))
+    }
+  }
+
+  let offset = 0
+  writeString(offset, 'RIFF')
+  offset += 4
+  view.setUint32(offset, 36 + dataSize, true)
+  offset += 4
+  writeString(offset, 'WAVE')
+  offset += 4
+  writeString(offset, 'fmt ')
+  offset += 4
+  view.setUint32(offset, 16, true) // Subchunk1Size for PCM
+  offset += 4
+  view.setUint16(offset, 1, true) // AudioFormat PCM
+  offset += 2
+  view.setUint16(offset, numChannels, true)
+  offset += 2
+  view.setUint32(offset, sampleRate, true)
+  offset += 4
+  view.setUint32(offset, byteRate, true)
+  offset += 4
+  view.setUint16(offset, blockAlign, true)
+  offset += 2
+  view.setUint16(offset, bytesPerSample * 8, true)
+  offset += 2
+  writeString(offset, 'data')
+  offset += 4
+  view.setUint32(offset, dataSize, true)
+  offset += 4
+
+  const channels: Float32Array[] = []
+  for (let channel = 0; channel < numChannels; channel += 1) {
+    channels.push(buffer.getChannelData(channel))
+  }
+
+  for (let i = 0; i < numFrames; i += 1) {
+    for (let channel = 0; channel < numChannels; channel += 1) {
+      let sample = channels[channel][i]
+      sample = Math.max(-1, Math.min(1, sample))
+      const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7fff
+      view.setInt16(offset, intSample, true)
+      offset += 2
+    }
+  }
+
+  return arrayBuffer
+}
+
 function App() {
   const [tempo, setTempo] = useState(85)
   const [swing, setSwing] = useState(15)
@@ -494,6 +558,7 @@ function App() {
   const [tracks, setTracks] = useState<Track[]>(defaultTracks)
   const [selectedPresetId, setSelectedPresetId] = useState<string>(PRESET_CUSTOM_ID)
   const [currentStep, setCurrentStep] = useState(0)
+  const [isRendering, setIsRendering] = useState(false)
 
   const audioContextRef = useRef<AudioContext | null>(null)
   const masterGainRef = useRef<GainNode | null>(null)
@@ -522,7 +587,7 @@ function App() {
     return audioContextRef.current
   }
 
-  const getNoiseBuffer = (context: AudioContext, color: 'white' | 'pink') => {
+  const getNoiseBuffer = (context: BaseAudioContext, color: 'white' | 'pink') => {
     if (!noiseBuffersRef.current[color]) {
       noiseBuffersRef.current[color] = createNoiseBuffer(context, color)
     }
@@ -539,9 +604,14 @@ function App() {
     }
   }, [masterVolume])
 
-  const playTrackHit = (track: Track, context: AudioContext, when: number) => {
-    const masterGain = masterGainRef.current
-    if (!masterGain || track.components.length === 0) return
+  const scheduleTrackHit = (
+    track: Track,
+    context: BaseAudioContext,
+    destination: AudioNode,
+    resolveNoiseBuffer: (color: 'white' | 'pink') => AudioBuffer,
+    when: number,
+  ) => {
+    if (track.components.length === 0) return
 
     const amplitude = clamp(track.level / 100, 0, 1) * 0.45
 
@@ -579,7 +649,7 @@ function App() {
       trackOutput = filterNode
     }
 
-    trackOutput.connect(masterGain)
+    trackOutput.connect(destination)
 
     const stopTime = when + attack + decay + hold + release * 4 + 0.4
     const pitchBend = 1 + Math.random() * 0.02 - 0.01
@@ -608,7 +678,7 @@ function App() {
         osc.stop(stopTime)
       } else {
         const source = context.createBufferSource()
-        source.buffer = getNoiseBuffer(context, component.color)
+        source.buffer = resolveNoiseBuffer(component.color)
         source.loop = false
 
         const noiseGain = context.createGain()
@@ -638,6 +708,11 @@ function App() {
   }
 
   const playStep = (index: number, context: AudioContext) => {
+    const masterGain = masterGainRef.current
+    if (!masterGain) {
+      return
+    }
+
     const startTime = context.currentTime
 
     tracks.forEach((track) => {
@@ -645,8 +720,103 @@ function App() {
         return
       }
 
-      playTrackHit(track, context, startTime)
+      scheduleTrackHit(track, context, masterGain, (color) => getNoiseBuffer(context, color), startTime)
     })
+  }
+
+  const handleDownload = async () => {
+    if (isRendering) {
+      return
+    }
+
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const extendedWindow = window as Window & {
+      webkitOfflineAudioContext?: typeof OfflineAudioContext
+    }
+
+    const OfflineContextClass = window.OfflineAudioContext ?? extendedWindow.webkitOfflineAudioContext
+
+    if (!OfflineContextClass) {
+      console.warn('Offline audio rendering is not supported in this browser.')
+      return
+    }
+
+    setIsRendering(true)
+
+    try {
+      const baseBeatSeconds = 60 / tempo
+      const swingRatio = swing / 100
+      const swingAmount = swingRatio * 0.4
+
+      const stepTimes: number[] = []
+      let accumulatedTime = 0
+
+      for (let step = 0; step < STEP_COUNT; step += 1) {
+        stepTimes.push(accumulatedTime)
+        const duration = baseBeatSeconds * (1 + (step % 2 === 0 ? -swingAmount : swingAmount))
+        accumulatedTime += duration
+      }
+
+      const tailSeconds = 2
+      const sampleRate = audioContextRef.current?.sampleRate ?? 44100
+      const totalDuration = accumulatedTime + tailSeconds
+
+      const offlineContext = new OfflineContextClass(
+        2,
+        Math.ceil(totalDuration * sampleRate),
+        sampleRate,
+      ) as OfflineAudioContext
+
+      const masterGain = offlineContext.createGain()
+      masterGain.gain.setValueAtTime(masterVolume / 100, 0)
+      masterGain.connect(offlineContext.destination)
+
+      const noiseCache: Partial<Record<'white' | 'pink', AudioBuffer>> = {}
+      const resolveNoiseBuffer = (color: 'white' | 'pink') => {
+        if (!noiseCache[color]) {
+          noiseCache[color] = createNoiseBuffer(offlineContext, color)
+        }
+        return noiseCache[color]!
+      }
+
+      tracks.forEach((track) => {
+        if (!track.enabled) {
+          return
+        }
+
+        track.pattern.forEach((active, index) => {
+          if (!active) {
+            return
+          }
+
+          const when = stepTimes[index] ?? 0
+          scheduleTrackHit(track, offlineContext, masterGain, resolveNoiseBuffer, when)
+        })
+      })
+
+      const renderedBuffer = await offlineContext.startRendering()
+      const wavBuffer = audioBufferToWav(renderedBuffer)
+      const blob = new Blob([wavBuffer], { type: 'audio/wav' })
+      const url = URL.createObjectURL(blob)
+
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = 'lofi-beat-mix.wav'
+      document.body.appendChild(anchor)
+      anchor.click()
+      document.body.removeChild(anchor)
+
+      setTimeout(() => {
+        URL.revokeObjectURL(url)
+      }, 1000)
+    } catch (error) {
+      console.error('Unable to render beat for download.', error)
+    } finally {
+      setIsRendering(false)
+    }
   }
 
   useEffect(() => {
@@ -835,13 +1005,23 @@ function App() {
           <h1>Lo-Fi Beat Mixer</h1>
           <p>Create a cozy 16-bar groove and sculpt every texture to your taste.</p>
         </div>
-        <button
-          type="button"
-          className={`play-button ${isPlaying ? 'play-button--active' : ''}`}
-          onClick={togglePlay}
-        >
-          {isPlaying ? 'Stop Beat' : 'Play Beat'}
-        </button>
+        <div className="app__header-actions">
+          <button
+            type="button"
+            className={`play-button ${isPlaying ? 'play-button--active' : ''}`}
+            onClick={togglePlay}
+          >
+            {isPlaying ? 'Stop Beat' : 'Play Beat'}
+          </button>
+          <button
+            type="button"
+            className="download-button"
+            onClick={handleDownload}
+            disabled={isRendering}
+          >
+            {isRendering ? 'Rendering…' : 'Download WAV'}
+          </button>
+        </div>
       </header>
 
       <section
